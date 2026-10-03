@@ -5,13 +5,16 @@
 
   outputs = { self, nixpkgs }:
     let
-      forAllSystems = f: nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system:
+      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system:
         f (import nixpkgs { inherit system; }));
     in
     {
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
-          packages = with pkgs; [ zig_0_15 cmake stdenv pkg-config alsa-lib];
+          packages = with pkgs; [ zig_0_15 cmake pkg-config ]
+            ++ lib.optionals stdenv.hostPlatform.isLinux [ alsa-lib ]
+            ++ lib.optionals stdenv.hostPlatform.isDarwin [ apple-sdk ];
         };
       });
     };
