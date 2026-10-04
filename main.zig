@@ -9,6 +9,15 @@ const echoes = @cImport ({
 
 const Frequency = f32;
 const PitchOffset = f32;
+const Partial = struct {
+    frequency: Frequency,
+    amplitude: f32,
+    decay: f32,
+};
+const Note = struct {
+    note: i8,
+    octave: i8,
+};
 
 const SAMPLE : Frequency = 48000;
 const PITCH_STANDARD : Frequency = 440;
@@ -28,8 +37,10 @@ const NOTES = struct {
 };
 const AMPLITUDE: f32 = 0.1;
 const PHASE: i4 = 0;
-const TIME_PER_NOTE: f32 = 3;
+const TIME_PER_NOTE: f32 = 1;
 const LOCAL_SAMPLE: u32 = @trunc (SAMPLE * TIME_PER_NOTE);
+const PARTIAL_COUNT: i8 = 24;
+const BASE_DECAY: f32 = 1.5;
 
 fn play (samples: [LOCAL_SAMPLE]f32) void {
     const sample = echoes.sample {
@@ -43,41 +54,62 @@ fn play (samples: [LOCAL_SAMPLE]f32) void {
     std.Thread.sleep(TIME_PER_NOTE * 1000 * std.time.ns_per_ms);
 }
 
-fn get_frequency_from_note (note: i8, octave: i8) Frequency {
-    const oct = if (note>2) octave - 1 else octave;
+fn get_frequency_from_note (note: Note) Frequency {
+    const oct = if (note.note>2) note.octave - 1 else note.octave;
     const local_oct = ((4 - oct) * -1);
-    const nxlc: PitchOffset = @floatFromInt ((12*local_oct) + note);
+    const nxlc: PitchOffset = @floatFromInt ((12*local_oct) + note.note);
     return (PITCH_STANDARD * std.math.pow (f32,  2, (nxlc / 12.0)));
 }
 
-fn envelope (time: f32, attack: f32, release: f32, duration: f32) f32 {
-    if (time <= 0.0) return 0.0;
+// Note: Gotta study compression
+fn envelope( time: f32, attack: f32, decay: f32, duration: f32, amplitude: f32,) f32 {
+    if (time <= 0.0 or time >= duration) return 0.0;
     if (time < attack) {
         const x = time / attack;
-        return AMPLITUDE * (x * x * (3.0 - 2.0 * x));
+        return amplitude * (x * x * (3.0 - 2.0 * x));
     }
-    if (time < duration - release) return AMPLITUDE;
-    if (time < duration) {
-        const x = (duration - time) / release;
-        return AMPLITUDE * (x * x * (3.0 - 2.0 * x));
-    }
-    return 0.0;
+    const x = (time - attack) / decay;
+    return amplitude * std.math.exp(-3.0 * x);
 }
-fn sin_wave (frequency: Frequency, time: f32) f32 {
+
+fn sin_wave (frequency: Frequency, time: f32, amplitude: f32, decay: f32) f32 {
     const ang_freq = 2 * std.math.pi * frequency;
-    return envelope (time, 0.02, 0.20, TIME_PER_NOTE) * std.math.sin (ang_freq * time + PHASE);
+    const amp = amplitude * std.math.exp(-decay * time); // NOTE: Gotta study this formula
+    return amp * std.math.sin(ang_freq * time + PHASE);
+    // return envelope (time, 0.005, decay, TIME_PER_NOTE, amplitude) * std.math.sin (ang_freq * time + PHASE);
 }
 
 // Change the type from `comptime anytype -> [*c]i8` if fetching the notes at runtime
 fn make_notes (comptime notes: anytype) [LOCAL_SAMPLE]f32 {
     var samples: [LOCAL_SAMPLE]f32 = .{0} ** LOCAL_SAMPLE;
-    inline for (notes, 0..) |note, k| {
-        const lf = get_frequency_from_note (note, (if (k == 0) 3 else 4)); // k0=3 just for the sample chords to sound more deligtfull
+    inline for (notes) |note| {
+        const lf = get_frequency_from_note (note);
         for (&samples, 0..) |*sample, t| {
-            sample.* += sin_wave(lf, @as(f32, @floatFromInt(t)) / SAMPLE);
+            sample.* += sin_wave(lf, @as(f32, @floatFromInt(t)) / SAMPLE, AMPLITUDE, BASE_DECAY);
+            const piano_partials = make_piano (lf); // make interface of somekind
+            for (piano_partials) |partial| {
+                sample.* += sin_wave(partial.frequency, @as(f32, @floatFromInt(t)) / SAMPLE, partial.amplitude, partial.decay);
+            }
         }
     }
    return samples;
+}
+
+fn make_piano (fundamental: Frequency) [PARTIAL_COUNT]Partial {
+    const B: f32 = 0.0001;
+    var partials: [PARTIAL_COUNT]Partial = std.mem.zeroes([PARTIAL_COUNT]Partial);
+
+    for (&partials, 1..PARTIAL_COUNT+1) |*partial, k| {
+        const k32 = @as(f32, @floatFromInt(k));
+        const frequency = k32 * fundamental * std.math.sqrt(1.0 + B * k32 * k32);
+        partial.* = .{
+            .frequency = frequency,
+            .amplitude = AMPLITUDE / (k32 * k32),
+            .decay = BASE_DECAY * k32,
+        };
+    }
+
+    return partials;
 }
 
 pub fn main () !void {
@@ -90,15 +122,37 @@ pub fn main () !void {
     // sound_check ();
 
     // TODO:
-    // 1. Octave per note
-    // 2. Time per note
-    play(make_notes(.{ NOTES.A, NOTES.C, NOTES.E, NOTES.B }));             // Am(add9)
-    play(make_notes(.{ NOTES.F, NOTES.A, NOTES.C, NOTES.E }));             // Fmaj7
-    play(make_notes(.{ NOTES.C, NOTES.E, NOTES.G, NOTES.B }));             // Cmaj7
-    play(make_notes(.{ NOTES.E, NOTES.G, NOTES.B, NOTES.D }));             // Em7
-    play(make_notes(.{ NOTES.F, NOTES.A, NOTES.C, NOTES.E, NOTES.B }));    // Fmaj7(#11): the shimmer
-    play(make_notes(.{ NOTES.D, NOTES.F, NOTES.A, NOTES.C, NOTES.E }));    // Dm9
-    play(make_notes(.{ NOTES.D, NOTES.F, NOTES.A, NOTES.B }));             // Dm6: the soft ache
-    play(make_notes(.{ NOTES.A, NOTES.C, NOTES.E }));                      // Am: settles home
-                                                                           //
+    // 1. Schedule notes efficiently
+    //    - Don't group notes like I do now
+    //    - Optimize sine-wave generation in the runtime
+    //    - Schedule notes in parallel
+    //    - Notes can overlap at different points in time
+    //          - E.g. A, B play in parallel for 2 seconds, then C plays for 2 seconds,
+    //          - then B, D play in parallel for 2 seconds
+
+    play(make_notes([_]Note{
+        .{ .note = NOTES.G, .octave = 3 },
+        .{ .note = NOTES.B, .octave = 3 },
+        .{ .note = NOTES.D, .octave = 4 },
+    })); // G
+    
+    play(make_notes([_]Note{
+        .{ .note = NOTES.D, .octave = 4 },
+        .{ .note = NOTES.F_SHARP, .octave = 4 },
+        .{ .note = NOTES.A, .octave = 4 },
+    })); // D
+    
+    play(make_notes([_]Note{
+        .{ .note = NOTES.E, .octave = 3 },
+        .{ .note = NOTES.G, .octave = 3 },
+        .{ .note = NOTES.B, .octave = 3 },
+    })); // Em
+    
+    play(make_notes([_]Note{
+        .{ .note = NOTES.C, .octave = 4 },
+        .{ .note = NOTES.E, .octave = 4 },
+        .{ .note = NOTES.G, .octave = 4 },
+    })); // C
+
+    // play (make_notes([_]Note{.{.note = NOTES.A, .octave = 4}}));
 }
