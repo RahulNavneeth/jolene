@@ -7,8 +7,11 @@ const echoes = @cImport ({
     @cInclude ("IO.h");
 });
 
-const SAMPLE : u32 = 48000;
-const PITCH_STANDARD : f32 = 440;
+const Frequency = f32;
+const PitchOffset = f32;
+
+const SAMPLE : Frequency = 48000;
+const PITCH_STANDARD : Frequency = 440;
 const NOTES = struct {
     pub const C = 3;
     pub const C_SHARP = 4; pub const D_FLAT = 4;
@@ -28,9 +31,9 @@ const PHASE: i4 = 0;
 const TIME_PER_NOTE: f32 = 1;
 const LOCAL_SAMPLE: u32 = @trunc (SAMPLE * TIME_PER_NOTE);
 
-fn play (samples: [*c]f32) void {
+fn play (samples: [LOCAL_SAMPLE]f32) void {
     const sample = echoes.sample {
-        .sample = samples,
+        .sample = samples[0..].ptr,
         .sample_count = LOCAL_SAMPLE,
         .current_position = 0,
         .completed = false,
@@ -40,14 +43,13 @@ fn play (samples: [*c]f32) void {
     std.Thread.sleep(TIME_PER_NOTE * 1000 * std.time.ns_per_ms);
 }
 
-fn get_frequency_from_note (note: i8, octave: i8) f32 {
+fn get_frequency_from_note (note: i8, octave: i8) Frequency {
     const oct = if (note>2) octave - 1 else octave;
     const local_oct = ((4 - oct) * -1);
-    const nxlc: f32 = @floatFromInt ((12*local_oct) + note);
+    const nxlc: PitchOffset = @floatFromInt ((12*local_oct) + note);
     return (PITCH_STANDARD * std.math.pow (f32,  2, (nxlc / 12.0)));
 }
 
-// TODO: Not quite there!
 fn envelope (time: f32, attack: f32, release: f32, duration: f32) f32 {
     if (time <= 0.0) return 0.0;
     if (time < attack) {
@@ -61,20 +63,21 @@ fn envelope (time: f32, attack: f32, release: f32, duration: f32) f32 {
     }
     return 0.0;
 }
-fn sin_wave (frequency: f32, time: f32) f32 {
+fn sin_wave (frequency: Frequency, time: f32) f32 {
     const ang_freq = 2 * std.math.pi * frequency;
     return envelope (time, 0.02, 0.20, TIME_PER_NOTE) * std.math.sin (ang_freq * time + PHASE);
 }
 
-fn make_notes (notes: []const i8) [*c]f32 {
+// Change the type from `comptime anytype -> [*c]i8` if fetching the notes at runtime
+fn make_notes (comptime notes: anytype) [LOCAL_SAMPLE]f32 {
     var samples: [LOCAL_SAMPLE]f32 = .{0} ** LOCAL_SAMPLE;
-    for (notes) |note| {
+    inline for (notes) |note| {
         const lf = get_frequency_from_note (note, 4);
         for (&samples, 0..) |*sample, t| {
             sample.* += sin_wave(lf, @as(f32, @floatFromInt(t)) / SAMPLE);
         }
     }
-   return &samples;
+   return samples;
 }
 
 pub fn main () !void {
@@ -86,14 +89,14 @@ pub fn main () !void {
     // const sound_check = impl.*.sound_check orelse unreachable;
     // sound_check ();
                                                        
-    play(make_notes(&.{ NOTES.C, NOTES.G }));
-    play(make_notes(&.{ NOTES.A, NOTES.C, NOTES.E }));
-    play(make_notes(&.{ NOTES.F, NOTES.A, NOTES.C, NOTES.E }));
-    play(make_notes(&.{ NOTES.G, NOTES.B, NOTES.D, NOTES.F }));
-    play(make_notes(&.{ NOTES.C, NOTES.E, NOTES.G, NOTES.B }));
-    play(make_notes(&.{ NOTES.A, NOTES.C, NOTES.E, NOTES.G }));
-    play(make_notes(&.{ NOTES.F, NOTES.A, NOTES.C, NOTES.E, NOTES.G }));
-    play(make_notes(&.{ NOTES.G, NOTES.B, NOTES.D, NOTES.F, NOTES.A }));
-    play(make_notes(&.{ NOTES.C, NOTES.E, NOTES.G, NOTES.B, NOTES.D }));
+    play(make_notes(.{ NOTES.C, NOTES.G }));
+    play(make_notes(.{ NOTES.A, NOTES.C, NOTES.E }));
+    play(make_notes(.{ NOTES.F, NOTES.A, NOTES.C, NOTES.E }));
+    play(make_notes(.{ NOTES.G, NOTES.B, NOTES.D, NOTES.F }));
+    play(make_notes(.{ NOTES.C, NOTES.E, NOTES.G, NOTES.B }));
+    play(make_notes(.{ NOTES.A, NOTES.C, NOTES.E, NOTES.G }));
+    play(make_notes(.{ NOTES.F, NOTES.A, NOTES.C, NOTES.E, NOTES.G }));
+    play(make_notes(.{ NOTES.G, NOTES.B, NOTES.D, NOTES.F, NOTES.A }));
+    play(make_notes(.{ NOTES.C, NOTES.E, NOTES.G, NOTES.B, NOTES.D }));
 
 }
