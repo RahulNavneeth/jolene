@@ -28,7 +28,7 @@ const NOTES = struct {
 };
 const AMPLITUDE: f32 = 0.1;
 const PHASE: i4 = 0;
-const TIME_PER_NOTE: f32 = 1;
+const TIME_PER_NOTE: f32 = 3;
 const LOCAL_SAMPLE: u32 = @trunc (SAMPLE * TIME_PER_NOTE);
 
 fn play (samples: [LOCAL_SAMPLE]f32) void {
@@ -71,8 +71,8 @@ fn sin_wave (frequency: Frequency, time: f32) f32 {
 // Change the type from `comptime anytype -> [*c]i8` if fetching the notes at runtime
 fn make_notes (comptime notes: anytype) [LOCAL_SAMPLE]f32 {
     var samples: [LOCAL_SAMPLE]f32 = .{0} ** LOCAL_SAMPLE;
-    inline for (notes) |note| {
-        const lf = get_frequency_from_note (note, 4);
+    inline for (notes, 0..) |note, k| {
+        const lf = get_frequency_from_note (note, (if (k == 0) 3 else 4)); // k0=3 just for the sample chords to sound more deligtfull
         for (&samples, 0..) |*sample, t| {
             sample.* += sin_wave(lf, @as(f32, @floatFromInt(t)) / SAMPLE);
         }
@@ -88,15 +88,17 @@ pub fn main () !void {
     // const impl: [*c]echoes.DriverIMPL = echoes.get_driver_impl ();
     // const sound_check = impl.*.sound_check orelse unreachable;
     // sound_check ();
-                                                       
-    play(make_notes(.{ NOTES.C, NOTES.G }));
-    play(make_notes(.{ NOTES.A, NOTES.C, NOTES.E }));
-    play(make_notes(.{ NOTES.F, NOTES.A, NOTES.C, NOTES.E }));
-    play(make_notes(.{ NOTES.G, NOTES.B, NOTES.D, NOTES.F }));
-    play(make_notes(.{ NOTES.C, NOTES.E, NOTES.G, NOTES.B }));
-    play(make_notes(.{ NOTES.A, NOTES.C, NOTES.E, NOTES.G }));
-    play(make_notes(.{ NOTES.F, NOTES.A, NOTES.C, NOTES.E, NOTES.G }));
-    play(make_notes(.{ NOTES.G, NOTES.B, NOTES.D, NOTES.F, NOTES.A }));
-    play(make_notes(.{ NOTES.C, NOTES.E, NOTES.G, NOTES.B, NOTES.D }));
 
+    // TODO:
+    // 1. Octave per note
+    // 2. Time per note
+    play(make_notes(.{ NOTES.A, NOTES.C, NOTES.E, NOTES.B }));             // Am(add9)
+    play(make_notes(.{ NOTES.F, NOTES.A, NOTES.C, NOTES.E }));             // Fmaj7
+    play(make_notes(.{ NOTES.C, NOTES.E, NOTES.G, NOTES.B }));             // Cmaj7
+    play(make_notes(.{ NOTES.E, NOTES.G, NOTES.B, NOTES.D }));             // Em7
+    play(make_notes(.{ NOTES.F, NOTES.A, NOTES.C, NOTES.E, NOTES.B }));    // Fmaj7(#11): the shimmer
+    play(make_notes(.{ NOTES.D, NOTES.F, NOTES.A, NOTES.C, NOTES.E }));    // Dm9
+    play(make_notes(.{ NOTES.D, NOTES.F, NOTES.A, NOTES.B }));             // Dm6: the soft ache
+    play(make_notes(.{ NOTES.A, NOTES.C, NOTES.E }));                      // Am: settles home
+                                                                           //
 }
